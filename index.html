@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mouse Coordinates to Hash</title>
+    <style>
+      body {
+        font-family: 'Arial', sans-serif;
+        text-align: center;
+        padding: 50px 20px;
+        background-color: #f7f7f7;
+        color: #333;
+      }
+
+      h1 {
+        font-size: 2.5rem;
+        color: #4caf50;
+        margin-bottom: 30px;
+        text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.1);
+      }
+
+      label {
+        font-size: 1.2rem;
+        font-weight: bold;
+        color: #444;
+      }
+
+      input,
+      textarea {
+        padding: 12px;
+        width: 60%;
+        max-width: 600px;
+        font-size: 1rem;
+        margin-bottom: 20px;
+        border: 1px solid #ccc;
+        border-radius: 5px;
+        transition: all 0.3s ease;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: #4caf50;
+        box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+        outline: none;
+      }
+
+      textarea {
+        resize: vertical;
+        height: 150px;
+      }
+
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 20px;
+        font-size: 1.2rem;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      button:hover {
+        background-color: #45a049;
+      }
+
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+
+      .output {
+        margin-top: 20px;
+        font-size: 1.1rem;
+        color: #666;
+      }
+
+      #hashOutput {
+        width: 60%;
+        max-width: 600px;
+        text-align: center;
+        background-color: #fafafa;
+      }
+
+      #progressBar {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: #4caf50;
+        color: white;
+        font-size: 1.2rem;
+        padding: 20px 0;
+        text-align: center;
+        box-shadow: 0px -2px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      .coordinates-display {
+        margin: 30px 0;
+        font-size: 1.1rem;
+        color: #444;
+      }
+
+      /* Canvas and preview styling */
+      #preview-container {
+        margin-top: 40px;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+      }
+
+      #preview {
+        border: 2px solid #ccc;
+        margin-top: 20px;
+        width: 60%;
+        max-width: 800px;
+        height: 400px;
+        background-color: white;
+        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+      }
+
+      /* Define o estilo dos pontos que seguirão o mouse */
+      .mouse-point {
+        position: absolute;
+        width: 6px;
+        height: 6px;
+        background-color: #ff5722;
+        border-radius: 50%;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Mouse Coordinates to SHA-256 Hash</h1>
+
+    <!-- Input para o usuário escolher o maxPoints -->
+    <label for="maxPointsInput">Set Maximum Points (default is 1000):</label>
+    <input type="number" id="maxPointsInput" min="1" value="1000" /><br /><br />
+
+    <button id="startButton">Start</button><br /><br />
+
+    <label for="hashOutput">Generated Hash of Path:</label>
+    <input type="text" id="hashOutput" readonly /><br />
+
+    <div class="coordinates-display">
+      <p>
+        Current Mouse Coordinates:
+        <span id="coordinatesDisplay">X: 0, Y: 0</span>
+      </p>
+    </div>
+
+    <div class="output">
+      <p>
+        Move your mouse over the page to generate coordinates and a SHA-256
+        hash.
+      </p>
+    </div>
+
+    <label for="coordinatesInput">Mouse Path (Complete):</label>
+    <textarea id="coordinatesInput" readonly></textarea><br />
+
+    <!-- Div para mostrar o preview da imagem -->
+    <div id="preview-container">
+      <canvas id="preview"></canvas>
+    </div>
+
+    <!-- Div com o progresso do rastreamento -->
+    <div id="progressBar">Progress: 0%</div>
+
+    <script>
+      let maxPoints = 1000 // Valor padrão de maxPoints é 1000
+      let fullPath = '' // Armazena o caminho completo do mouse
+      let tracking = false // Controla se o rastreamento está ativo
+      let mousePoints = [] // Armazena todos os pontos gerados
+      const startButton = document.getElementById('startButton')
+      const maxPointsInput = document.getElementById('maxPointsInput')
+      const canvas = document.getElementById('preview')
+      const ctx = canvas.getContext('2d')
+      const progressBar = document.getElementById('progressBar')
+
+      // Função para ajustar o tamanho do canvas para toda a tela
+      function adjustCanvasSize() {
+        canvas.width = window.innerWidth * 0.8
+        canvas.height = 400 // Altura fixa para o canvas
+      }
+
+      // Chama a função para ajustar o canvas inicialmente
+      adjustCanvasSize()
+
+      // Redimensiona o canvas ao mudar o tamanho da janela
+      window.addEventListener('resize', adjustCanvasSize)
+
+      async function stringToHexHash(input) {
+        const encoder = new TextEncoder()
+        const data = encoder.encode(input)
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+        const hashArray = Array.from(new Uint8Array(hashBuffer))
+        const hexHash = hashArray
+          .map(b => b.toString(16).padStart(2, '0'))
+          .join('')
+        return hexHash
+      }
+
+      // Função para criar e adicionar um ponto ao corpo da página
+      function createMousePoint(x, y) {
+        const point = document.createElement('div')
+        point.classList.add('mouse-point')
+        point.style.left = `${x - 10}px` // Subtraindo metade da largura (10px para centralizar)
+        point.style.top = `${y - 10}px` // Subtraindo metade da altura (10px para centralizar)
+        document.body.appendChild(point)
+        mousePoints.push({ x, y }) // Armazena o ponto para uso posterior
+
+        // Atualiza a barra de progresso conforme o número de pontos coletados
+        updateProgress()
+      }
+
+      // Função para desenhar o preview no canvas
+      function drawPreview() {
+        // Limpa o canvas
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+        // Desenha cada ponto no canvas respeitando a área do preview
+        mousePoints.forEach(point => {
+          ctx.beginPath()
+          ctx.arc(point.x, point.y, 3, 0, 2 * Math.PI)
+          ctx.fillStyle = 'red'
+          ctx.fill()
+        })
+      }
+
+      // Função para atualizar a barra de progresso com base no número de pontos
+      function updateProgress() {
+        const progress = Math.min((mousePoints.length / maxPoints) * 100, 100)
+        progressBar.textContent = `Progress: ${progress.toFixed(0)}%`
+
+        // Se já tiver coletado o número máximo de pontos, para o rastreamento
+        if (mousePoints.length >= maxPoints) {
+          tracking = false
+          drawPreview() // Desenha o preview no canvas
+          // Remove todos os pontos da tela
+          document
+            .querySelectorAll('.mouse-point')
+            .forEach(point => point.remove())
+        }
+      }
+
+      // Função para iniciar o rastreamento
+      function startTracking() {
+        tracking = false // Inicialmente, não inicia
+        fullPath = ''
+        mousePoints = [] // Limpa os pontos anteriores
+
+        // Limpa todos os pontos da tela, caso já tenha iniciado antes
+        document
+          .querySelectorAll('.mouse-point')
+          .forEach(point => point.remove())
+
+        // Reseta a barra de progresso
+        progressBar.textContent = `Progress: 0%`
+
+        // Obtém o valor de maxPoints a partir do input do usuário
+        maxPoints = parseInt(maxPointsInput.value) || 1000 // Garante que o valor seja um número, com valor padrão 1000
+
+        // Contagem regressiva de 2 segundos antes de iniciar o rastreamento
+        startButton.disabled = true // Desativa o botão enquanto aguarda
+        let countdown = 2
+
+        const countdownInterval = setInterval(() => {
+          if (countdown > 0) {
+            startButton.textContent = `Start in ${countdown--}`
+          } else {
+            startButton.textContent = 'Go!'
+            clearInterval(countdownInterval)
+            tracking = true // Inicia o rastreamento
+            setTimeout(() => {
+              startButton.textContent = 'Start' // Volta ao texto original
+              startButton.disabled = false // Habilita o botão novamente
+            }, 500) // Volta o texto para "Start" após 0.5 segundos
+          }
+        }, 1000) // Atualiza a contagem regressiva a cada segundo
+      }
+
+      // Adiciona um listener de movimento do mouse
+      document.addEventListener('mousemove', async function (event) {
+        if (!tracking || mousePoints.length >= maxPoints) return // Apenas rastreia se estiver ativo e se ainda não atingiu o máximo de pontos
+
+        // Captura as coordenadas do mouse
+        const x = event.clientX
+        const y = event.clientY
+        const coordinates = `X:${x}, Y:${y}; `
+
+        // Adiciona as coordenadas ao caminho completo
+        fullPath += coordinates
+
+        // Exibe o caminho completo no textarea
+        document.getElementById('coordinatesInput').value = fullPath
+
+        // Exibe as coordenadas atuais na área dedicada
+        document.getElementById(
+          'coordinatesDisplay'
+        ).textContent = `X: ${x}, Y: ${y}`
+
+        // Gera o hash do caminho completo
+        const hash = await stringToHexHash(fullPath)
+        document.getElementById('hashOutput').value = hash
+
+        // Cria um ponto no local do mouse
+        createMousePoint(x, y)
+      })
+
+      // Inicia o rastreamento quando o botão de Start é clicado
+      startButton.addEventListener('click', startTracking)
+    </script>
+  </body>
+</html>
